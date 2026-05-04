@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Muevete CRM | Luxury Boutique Management</title>
+  
+  <link rel="stylesheet" href="styles.css?v=9">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#7c3aed">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3048/3048398.png">
+  
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <!-- Admin Mobile Bottom Navigation -->
+  <nav class="mobile-bottom-nav" id="mobile-nav" style="display: none;">
+    <button class="mobile-nav-btn active" onclick="switchView('dashboard', this)"><i data-lucide="layout-dashboard"></i><span>Inicio</span></button>
+    <button class="mobile-nav-btn" onclick="switchView('clients', this)"><i data-lucide="users"></i><span>Clientes</span></button>
+    <button class="mobile-nav-btn" onclick="switchView('birthday', this)"><i data-lucide="cake"></i><span>Cumple</span></button>
+    <button class="mobile-nav-btn" onclick="switchView('schedule', this)"><i data-lucide="calendar-range"></i><span>Horarios</span></button>
+  </nav>
+
+  <!-- Client Mobile Bottom Navigation -->
+  <nav class="mobile-bottom-nav" id="client-mobile-nav" style="display: none;">
+    <button class="client-nav-btn active" onclick="switchClientView('inicio', this)"><i data-lucide="home"></i><span>Inicio</span></button>
+    <button class="client-nav-btn" onclick="switchClientView('asistencia', this)"><i data-lucide="calendar-check"></i><span>Asistencia</span></button>
+    <button class="client-nav-btn" onclick="switchClientView('horarios', this)"><i data-lucide="calendar-range"></i><span>Horarios</span></button>
+    <button class="client-nav-btn" onclick="switchClientView('reservas', this)"><i data-lucide="clipboard-check"></i><span>Reservas</span></button>
+  </nav>
+  <!-- Login Screen -->
+  <div id="login-screen" class="login-shell">
+    <div class="login-backdrop"></div>
+    <div class="login-grid">
+      <section class="login-card-wrap">
+        <div class="login-card">
+          <div class="login-card-header">
+            <h1 class="login-brand-title">Muevete CRM</h1>
+            <span class="login-badge">Acceso seguro</span>
+            <h2>Inicia sesion</h2>
+            <p>Ingresa con tu perfil para continuar en la plataforma.</p>
+          </div>
+
+          <form id="login-form" class="login-form">
+            <div class="form-group">
+              <label for="login-user">Usuario</label>
+              <input type="text" id="login-user" required placeholder="Ingresa tu usuario" autocomplete="username">
+            </div>
+            <div class="form-group">
+              <label for="login-pass">Contraseña</label>
+              <input type="password" id="login-pass" required placeholder="••••••••" autocomplete="current-password">
+            </div>
+
+            <button type="submit" id="login-submit" class="btn btn-primary login-submit-btn">Entrar al sistema</button>
+          </form>
+
+          <p id="login-error" class="danger-text login-error">Credenciales incorrectas. Usa un acceso valido para continuar.</p>
+
+          <div class="login-footer-note">
+            <span>Accesos demo:</span>
+            <strong><code>admin / admin123</code></strong>
+            <strong><code>cliente / cliente123</code></strong>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="container" id="main-app" style="display: none;">
+    <header>
+      <div class="header-main">
+        <h1>Muevete CRM</h1>
+        <p id="user-role-text" style="color: var(--text-muted); font-size: 0.9rem">Boutique Fitness Management</p>
+      </div>
+      <div class="header-controls">
+        <button id="client-profile-btn" class="btn btn-secondary btn-sm" style="display: none; padding: 0.25rem; border-radius: 50%; width: 36px; height: 36px; overflow: hidden;" onclick="openClientProfileModal()" title="Mi Perfil">
+          <img src="https://ui-avatars.com/api/?name=Cliente&background=random" id="client-profile-avatar" style="width: 100%; height: 100%; object-fit: cover;" alt="Profile">
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="logout()" title="Cerrar Sesión" style="margin-left: 0.5rem; margin-right: 1rem">
+          <i data-lucide="log-out"></i>
+        </button>
+        <button id="dark-mode-toggle" class="btn btn-secondary btn-sm" onclick="toggleDarkMode()" title="Cambiar Tema">
+          <i data-lucide="moon" id="theme-icon"></i>
+        </button>
+        <span id="current-date" class="date-display"></span>
+      </div>
+    </header>
+
+    <div id="admin-nav" class="desktop-nav" style="display: none;">
+      <nav class="navbar">
+        <div class="nav-inner">
+          <button class="nav-btn active" onclick="switchView('dashboard', this)"><i data-lucide="layout-dashboard"></i> Dashboard</button>
+          <button class="nav-btn" onclick="switchView('clients', this)"><i data-lucide="users"></i> Clientes</button>
+          <button class="nav-btn" onclick="switchView('birthday', this)"><i data-lucide="cake"></i> Cumpleaños</button>
+          <button class="nav-btn" onclick="switchView('schedule', this)"><i data-lucide="calendar-range"></i> Horarios</button>
+        </div>
+      </nav>
+    </div>
+
+
+    <!-- Admin Content Wrapper -->
+    <div id="admin-content" style="display: none;">
+
+    <!-- View: Dashboard -->
+    <div id="view-dashboard" class="app-view">
+      <div class="dashboard-grid">
+        <!-- Key Metrics -->
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-icon"><i data-lucide="users"></i></div>
+            <div class="stat-info">
+              <span class="stat-value" id="stat-total-clients">-</span>
+              <span class="stat-label">Total Clientes</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background: rgba(var(--accent-rgb), 0.1); color: var(--accent)"><i data-lucide="trending-up"></i></div>
+            <div class="stat-info">
+              <span class="stat-value" id="stat-avg-attendance">-</span>
+              <span class="stat-label">Promedio Asistencia</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-cards-grid">
+          <!-- Top Clients -->
+          <div class="card">
+            <h3><i data-lucide="trophy"></i> Clientes más frecuentes</h3>
+            <div id="top-clients-list" class="stats-list">
+              <p class="loading">Cargando...</p>
+            </div>
+          </div>
+
+          <!-- Schedule Notifications Card -->
+          <div class="card">
+            <h3><i data-lucide="bell-ring"></i> Notificaciones de reservas</h3>
+            <div id="schedule-notifications" class="stats-list">
+              <p class="loading">Cargando notificaciones...</p>
+            </div>
+          </div>
+
+          <!-- Attendance by Day -->
+          <div class="card">
+            <h3><i data-lucide="calendar"></i> Asistencia por día</h3>
+            <div class="chart-container">
+              <canvas id="days-chart"></canvas>
+            </div>
+          </div>
+
+          <!-- Birthdays Mini Card -->
+          <div class="card">
+            <h3><i data-lucide="cake"></i> Próximos Cumpleaños</h3>
+            <div id="dash-birthday-list" class="stats-list">
+              <p class="loading">Cargando...</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- View: Clients -->
+    <div id="view-clients" class="app-view hidden">
+      <div class="main-grid">
+        <!-- Form Card stays on first tab -->
+        <div class="card">
+          <h2><i data-lucide="user-plus"></i> Nuevo Cliente</h2>
+          <form id="add-client-form">
+            <div class="form-group">
+              <label for="name">Nombre Completo</label>
+              <input type="text" id="name" required placeholder="Nombre y Apellido">
+            </div>
+            
+            <div class="form-group">
+              <label for="phone">Teléfono de Contacto (7 dígitos)</label>
+              <input type="tel" id="phone" pattern="[0-9]{7}" minlength="7" maxlength="7" required placeholder="Ej: 3456789">
+            </div>
+            
+            <div class="form-group">
+              <label for="plan">Plan Seleccionado</label>
+              <select id="plan" required>
+                <option value="8 clases">8 Clases / mes</option>
+                <option value="12 clases">12 Clases / mes</option>
+                <option value="20 clases">20 Clases / mes</option>
+                <option value="ilimitado">Ilimitado VIP</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label for="start_date">Fecha de Inicio</label>
+              <input type="date" id="start_date" required>
+            </div>
+
+            <div class="form-group">
+              <label for="birth_date">Fecha de Nacimiento</label>
+              <input type="date" id="birth_date">
+            </div>
+            
+            <button type="submit" class="btn btn-primary">Registrar en Sistema</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="table-header">
+            <div>
+              <h2 style="margin-bottom: 0.25rem"><i data-lucide="users"></i> Listado de Clientes</h2>
+              <div class="search-container">
+                <i data-lucide="search" class="search-icon"></i>
+                <input type="text" id="client-search" placeholder="Buscar por nombre o celular..." oninput="handleSearch()">
+              </div>
+            </div>
+            <div class="pagination-controls">
+              <button class="btn btn-secondary btn-sm" onclick="prevPage()"><i data-lucide="chevron-left"></i></button>
+              <span id="page-indicator" style="font-size: 0.85rem; font-weight: 500; margin: 0 1rem">Página 1</span>
+              <button class="btn btn-secondary btn-sm" onclick="nextPage()"><i data-lucide="chevron-right"></i></button>
+            </div>
+          </div>
+
+          <div class="table-wrapper">
+            <table id="clients-table">
+              <thead>
+                <tr>
+                  <th>Nro</th>
+                  <th>Cliente</th>
+                  <th>Plan</th>
+                  <th>Cumpleaños</th>
+                  <th>Estado Clases</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="clients-table-body">
+                <tr>
+                  <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 3rem">Buscando datos...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- View: Birthday Section (In its own Tab) -->
+    <div id="view-birthday" class="app-view hidden">
+      <h2 class="section-title"><i data-lucide="cake"></i> Apartado de Cumpleaños</h2>
+      <div class="birthday-section">
+        <!-- Calendar Card -->
+        <div class="card" style="display: block;">
+          <div id="calendar"></div>
+        </div>
+
+        <!-- Upcoming List Card -->
+        <div class="card">
+          <h3 style="margin-bottom: 1.5rem; font-size: 1.1rem; color: var(--text-muted)">Próximos Cumpleaños</h3>
+          <div id="upcoming-list" class="upcoming-list">
+            <p style="color: var(--text-muted); font-size: 0.9rem">No hay cumpleaños próximos registrados.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="view-schedule" class="app-view hidden">
+      <h2 class="section-title"><i data-lucide="calendar-range"></i> Apartado de Horarios</h2>
+      <div class="schedule-admin-grid">
+        <div class="card">
+          <h3><i data-lucide="settings-2"></i> Personalizar horario</h3>
+          <form id="schedule-form">
+            <input type="hidden" id="schedule-id">
+            <div class="form-group">
+              <label for="schedule-title">Clase</label>
+              <input type="text" id="schedule-title" required placeholder="Ej: Strong Nation">
+            </div>
+            <div class="form-group">
+              <label for="schedule-day">Día</label>
+              <select id="schedule-day" required>
+                <option value="0">Lunes</option>
+                <option value="1">Martes</option>
+                <option value="2">Miércoles</option>
+                <option value="3">Jueves</option>
+                <option value="4">Viernes</option>
+                <option value="5">Sábado</option>
+                <option value="6">Domingo</option>
+              </select>
+            </div>
+            <div class="schedule-form-row">
+              <div class="form-group">
+                <label for="schedule-start">Hora inicio</label>
+                <input type="time" id="schedule-start" required>
+              </div>
+              <div class="form-group">
+                <label for="schedule-end">Hora fin</label>
+                <input type="time" id="schedule-end">
+              </div>
+            </div>
+            <div class="schedule-form-row">
+              <div class="form-group">
+                <label for="schedule-capacity">Cupos</label>
+                <input type="number" id="schedule-capacity" min="1" value="12" required>
+              </div>
+              <div class="form-group">
+                <label for="schedule-color">Color</label>
+                <input type="color" id="schedule-color" value="#7c3aed">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="schedule-instructor">Instructor</label>
+              <input type="text" id="schedule-instructor" placeholder="Opcional">
+            </div>
+            <div class="form-group">
+              <label for="schedule-notes">Notas</label>
+              <input type="text" id="schedule-notes" placeholder="Ej: llevar mat o clase extra">
+            </div>
+            <div class="flex-end">
+              <button type="button" class="btn btn-secondary" onclick="resetScheduleForm()">Limpiar</button>
+              <button type="submit" class="btn btn-primary">Guardar horario</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card schedule-board-card">
+          <h3><i data-lucide="layout-grid"></i> Horario semanal</h3>
+          <div id="admin-schedule-board" class="schedule-board">
+            <p class="loading">Cargando horarios...</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3><i data-lucide="clipboard-list"></i> Quién vendrá</h3>
+          <div id="admin-coming-list" class="stats-list">
+            <p class="loading">Cargando reservas...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    </div> <!-- End admin-content -->
+
+    <!-- Client Content Wrapper -->
+    <div id="client-content" style="display: none; padding-bottom: 90px;">
+
+      <!-- Client View: Inicio -->
+      <div id="client-view-inicio" class="client-view">
+        <div class="card">
+          <h2><i data-lucide="info"></i> Nuestra Academia</h2>
+          <div style="margin-top: 1rem">
+            <p style="line-height: 1.6; color: var(--text-muted)">Bienvenido a <strong>Muevete Boutique Fitness</strong>. Nos dedicamos a transformar tu estilo de vida a través del movimiento consciente y entrenamiento personalizado.</p>
+            <div style="margin-top: 1.5rem">
+              <div class="stats-item" style="margin-bottom: 0.5rem">
+                <span class="stats-item-name"><i data-lucide="map-pin" style="width:14px"></i> Ubicación</span>
+                <span class="stats-item-value">Calle 15, Calacoto</span>
+              </div>
+              <div class="stats-item">
+                <span class="stats-item-name"><i data-lucide="phone" style="width:14px"></i> Contacto</span>
+                <span class="stats-item-value">+591 76543210</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Client View: Asistencia -->
+      <div id="client-view-asistencia" class="client-view hidden">
+        <h2 class="section-title"><i data-lucide="calendar-check"></i> Mi Historial de Asistencia</h2>
+        <div class="card">
+          <div id="client-att-calendar" style="margin-top: 0.5rem;"></div>
+        </div>
+      </div>
+
+      <!-- Client View: Horarios -->
+      <div id="client-view-horarios" class="client-view hidden">
+        <h2 class="section-title"><i data-lucide="calendar-range"></i> Horarios para anotarme</h2>
+        <div class="card">
+          <div id="client-schedule-board" class="schedule-board" style="margin-top: 0.5rem;">
+            <p class="loading">Cargando horarios disponibles...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Client View: Reservas -->
+      <div id="client-view-reservas" class="client-view hidden">
+        <h2 class="section-title"><i data-lucide="clipboard-check"></i> Mis reservas</h2>
+        <div class="card">
+          <div id="client-reservations-list" class="stats-list" style="margin-top: 0.5rem;">
+            <p class="loading">Cargando tus reservas...</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Edit Client Modal -->
+  <div id="edit-modal" class="modal-overlay">
+    <div class="modal-content">
+      <h2><i data-lucide="edit"></i> Editar Cliente</h2>
+      <form id="edit-client-form">
+        <input type="hidden" id="edit-id">
+        <div class="form-group">
+          <label>Nombre Completo</label>
+          <input type="text" id="edit-name" required>
+        </div>
+        <div class="form-group">
+          <label>Teléfono (7 dígitos)</label>
+          <input type="tel" id="edit-phone" pattern="[0-9]{7}" minlength="7" maxlength="7" required>
+        </div>
+        <div class="form-group">
+          <label>Plan</label>
+          <select id="edit-plan" required>
+            <option value="8 clases">8 Clases / mes</option>
+            <option value="12 clases">12 Clases / mes</option>
+            <option value="20 clases">20 Clases / mes</option>
+            <option value="ilimitado">Ilimitado VIP</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Fecha de Inicio</label>
+          <input type="date" id="edit-start" required>
+        </div>
+        <div class="form-group">
+          <label>Fecha de Nacimiento</label>
+          <input type="date" id="edit-birth">
+        </div>
+
+        <div class="flex-end">
+          <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+        </div>
+      </form>
+      
+      <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border)">
+        <p class="danger-text" style="font-size: 0.8rem; margin-bottom: 0.5rem">Zona de Peligro</p>
+        <button type="button" class="btn btn-danger" onclick="confirmDeleteClient()">
+          Eliminar Cliente Permanentemente
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js?v=10"></script>
+  <script>
+    lucide.createIcons();
+    document.getElementById('current-date').innerText = new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  </script>
+  <!-- Attendance Management Modal -->
+  <div id="attendance-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 550px">
+      <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 2rem">
+        <h2 style="margin:0; font-size: 1.25rem"><i data-lucide="calendar-days"></i> Clases de <span id="att-client-name" style="color: var(--primary)"></span></h2>
+        <button class="btn btn-secondary btn-sm" onclick="closeAttendanceModal()"><i data-lucide="x"></i></button>
+      </div>
+
+      <div style="background: var(--bg); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem; border: 1px solid var(--border)">
+        <div style="display: flex; gap: 0.5rem; align-items: center">
+          <input type="date" id="new-att-date" style="flex: 1">
+          <button class="btn btn-primary btn-sm" id="btn-add-att" onclick="addCustomAttendance()" style="width:auto; padding: 0 1.25rem">Registrar asistencia</button>
+        </div>
+        <p id="att-limit-warning" class="danger-text" style="font-size: 0.75rem; margin-top: 0.5rem; display: none; font-weight: 600">¡Límite del plan alcanzado!</p>
+      </div>
+
+      <div style="flex: 1; min-height: 400px;" id="att-calendar"></div>
+
+      <div class="flex-end" style="margin-top: 1.5rem">
+        <button class="btn btn-secondary" onclick="closeAttendanceModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+  <div id="reservations-modal" class="modal-overlay" style="display:none">
+    <div class="modal-content" style="max-width: 400px">
+      <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem">
+        <h2 style="margin:0; font-size: 1.2rem"><i data-lucide="users"></i> Inscritos a <span id="res-modal-title"></span></h2>
+        <button class="btn btn-secondary btn-sm" onclick="closeReservationsModal()"><i data-lucide="x"></i></button>
+      </div>
+      <div id="res-modal-list" class="stats-list" style="max-height: 300px; overflow-y: auto; margin-bottom: 1.5rem;">
+        <!-- Lista de inscritos -->
+      </div>
+      <div class="flex-end">
+        <button class="btn btn-secondary" onclick="closeReservationsModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Client Profile Modal -->
+  <div id="client-profile-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 500px;">
+      <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem">
+        <h2 style="margin:0; font-size: 1.25rem"><i data-lucide="user"></i> Mi Perfil</h2>
+        <button class="btn btn-secondary btn-sm" onclick="closeClientProfileModal()"><i data-lucide="x"></i></button>
+      </div>
+      
+      <div id="client-profile-loading" style="margin-bottom: 1rem">
+        <p class="loading">Cargando perfil...</p>
+      </div>
+
+      <form id="client-profile-form" style="display: none;">
+        <div class="client-profile-grid">
+          <div class="form-group">
+            <label for="client-name">Nombre</label>
+            <input type="text" id="client-name" required>
+          </div>
+          <div class="form-group">
+            <label for="client-phone">Celular</label>
+            <input type="tel" id="client-phone" pattern="[0-9]{7,8}" minlength="7" maxlength="8" required placeholder="Solo numeros">
+          </div>
+          <div class="form-group">
+            <label for="client-birth-date">Cumpleaños</label>
+            <input type="date" id="client-birth-date">
+          </div>
+        </div>
+
+        <div class="client-profile-meta" style="margin-bottom: 1.5rem;">
+          <div class="stats-item">
+            <span class="stats-item-name">Plan</span>
+            <span id="client-plan-badge" class="stats-item-value">-</span>
+          </div>
+          <div class="stats-item">
+            <span class="stats-item-name">Inicio</span>
+            <span id="client-start-date" class="stats-item-value">-</span>
+          </div>
+        </div>
+
+        <div class="client-profile-actions flex-end" style="gap: 1rem; align-items: center;">
+          <p id="client-profile-feedback" class="loading client-profile-feedback" style="display: none; margin: 0;"></p>
+          <button type="submit" class="btn btn-primary">Guardar mis datos</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+</body>
+</html>
