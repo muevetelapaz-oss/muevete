@@ -1,9 +1,13 @@
 from sqlmodel import create_engine, SQLModel, Session
+import os
 
-sqlite_file_name = "muevete.db"
-sqlite_url = f"sqlite:///{sqlite_file_name}"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///muevete.db")
 
-engine = create_engine(sqlite_url, echo=False)
+# Fix for Render PostgreSQL URL
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+engine = create_engine(DATABASE_URL, echo=False)
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
