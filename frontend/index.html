@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Muevete CRM | Luxury Boutique Management</title>
   
-  <link rel="stylesheet" href="styles.css?v=9">
+  <link rel="stylesheet" href="styles.css?v=12">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#7c3aed">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -15,6 +15,8 @@
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
   <!-- Admin Mobile Bottom Navigation -->
@@ -23,14 +25,17 @@
     <button class="mobile-nav-btn" onclick="switchView('clients', this)"><i data-lucide="users"></i><span>Clientes</span></button>
     <button class="mobile-nav-btn" onclick="switchView('birthday', this)"><i data-lucide="cake"></i><span>Cumple</span></button>
     <button class="mobile-nav-btn" onclick="switchView('schedule', this)"><i data-lucide="calendar-range"></i><span>Horarios</span></button>
+    <button class="mobile-nav-btn" onclick="switchView('qr', this)"><i data-lucide="qr-code"></i><span>QR</span></button>
   </nav>
 
   <!-- Client Mobile Bottom Navigation -->
   <nav class="mobile-bottom-nav" id="client-mobile-nav" style="display: none;">
     <button class="client-nav-btn active" onclick="switchClientView('inicio', this)"><i data-lucide="home"></i><span>Inicio</span></button>
+    <button class="client-nav-btn" onclick="switchClientView('escanear', this)"><i data-lucide="scan-line"></i><span>Escanear</span></button>
     <button class="client-nav-btn" onclick="switchClientView('asistencia', this)"><i data-lucide="calendar-check"></i><span>Asistencia</span></button>
     <button class="client-nav-btn" onclick="switchClientView('horarios', this)"><i data-lucide="calendar-range"></i><span>Horarios</span></button>
     <button class="client-nav-btn" onclick="switchClientView('reservas', this)"><i data-lucide="clipboard-check"></i><span>Reservas</span></button>
+    <button class="client-nav-btn" onclick="switchClientView('posts', this)"><i data-lucide="image"></i><span>Posts</span></button>
   </nav>
   <!-- Login Screen -->
   <div id="login-screen" class="login-shell">
@@ -97,6 +102,21 @@
           <button class="nav-btn" onclick="switchView('clients', this)"><i data-lucide="users"></i> Clientes</button>
           <button class="nav-btn" onclick="switchView('birthday', this)"><i data-lucide="cake"></i> Cumpleaños</button>
           <button class="nav-btn" onclick="switchView('schedule', this)"><i data-lucide="calendar-range"></i> Horarios</button>
+          <button class="nav-btn" onclick="switchView('qr', this)"><i data-lucide="qr-code"></i> QR</button>
+          <button class="nav-btn" onclick="switchView('instagram', this)"><i data-lucide="image"></i> Instagram</button>
+        </div>
+      </nav>
+    </div>
+
+    <div id="client-nav" class="desktop-nav" style="display: none;">
+      <nav class="navbar">
+        <div class="nav-inner">
+          <button class="nav-btn active" onclick="switchClientView('inicio', this)"><i data-lucide="home"></i> Inicio</button>
+          <button class="nav-btn" onclick="switchClientView('escanear', this)"><i data-lucide="scan-line"></i> Escanear QR</button>
+          <button class="nav-btn" onclick="switchClientView('asistencia', this)"><i data-lucide="calendar-check"></i> Asistencia</button>
+          <button class="nav-btn" onclick="switchClientView('horarios', this)"><i data-lucide="calendar-range"></i> Horarios</button>
+          <button class="nav-btn" onclick="switchClientView('reservas', this)"><i data-lucide="clipboard-check"></i> Reservas</button>
+          <button class="nav-btn" onclick="switchClientView('posts', this)"><i data-lucide="image"></i> Posts</button>
         </div>
       </nav>
     </div>
@@ -336,6 +356,26 @@
       </div>
     </div>
 
+    <!-- View: QR Ingreso -->
+    <div id="view-qr" class="app-view hidden">
+      <h2 class="section-title"><i data-lucide="qr-code"></i> Código QR de Ingreso</h2>
+      <div style="max-width:420px; margin:0 auto">
+        <div class="card" style="text-align:center">
+          <p style="color:var(--text-muted); margin-bottom:1.5rem; line-height:1.6">Muestra este código en la recepción. Los clientes lo escanean con su teléfono para registrar su ingreso automáticamente.</p>
+          <div id="gym-qr-container" style="display:flex; justify-content:center; background:#fff; padding:1.5rem; border-radius:16px; border:1px solid var(--border); margin-bottom:1rem"></div>
+          <p style="font-size:0.8rem; color:var(--text-muted)">Apuntar la cámara del teléfono para escanear</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Admin View: Instagram -->
+    <div id="view-instagram" class="app-view hidden">
+      <h2 class="section-title"><i data-lucide="image"></i> Últimas publicaciones</h2>
+      <div id="admin-instagram-feed" class="instagram-feed" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+        <p class="loading">Cargando publicaciones...</p>
+      </div>
+    </div>
+
     </div> <!-- End admin-content -->
 
     <!-- Client Content Wrapper -->
@@ -357,6 +397,20 @@
                 <span class="stats-item-value">+591 76543210</span>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Client View: Escanear QR -->
+      <div id="client-view-escanear" class="client-view hidden">
+        <h2 class="section-title"><i data-lucide="scan-line"></i> Registrar mi ingreso</h2>
+        <div class="card" style="max-width:480px; margin:0 auto">
+          <p style="color:var(--text-muted); text-align:center; margin-bottom:1.25rem; line-height:1.5">Apunta tu cámara al código QR de la recepción para registrar tu ingreso automáticamente.</p>
+          <div id="client-qr-reader" style="width:100%; border-radius:12px; overflow:hidden; background:#000; min-height:280px"></div>
+          <div id="client-scan-result" style="display:none; margin-top:1rem"></div>
+          <p id="client-scan-error" class="danger-text" style="display:none; margin-top:0.75rem; font-size:0.9rem; text-align:center"></p>
+          <div class="flex-end" style="margin-top:1rem; justify-content:center; gap:0.5rem">
+            <button id="client-scan-restart" class="btn btn-primary" onclick="startClientScanner()" style="display:none">Escanear de nuevo</button>
           </div>
         </div>
       </div>
@@ -386,6 +440,17 @@
           <div id="client-reservations-list" class="stats-list" style="margin-top: 0.5rem;">
             <p class="loading">Cargando tus reservas...</p>
           </div>
+        </div>
+      </div>
+
+      <!-- Client View: Instagram Posts -->
+      <div id="client-view-posts" class="client-view hidden">
+        <h2 class="section-title"><i data-lucide="image"></i> Últimas publicaciones</h2>
+        <div id="instagram-feed" class="instagram-feed" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+          <p class="loading">Cargando publicaciones...</p>
+        </div>
+        <div id="load-more-container" style="text-align: center; margin-top: 2rem; display: none;">
+          <button class="btn btn-secondary" onclick="loadMorePosts()">Cargar más</button>
         </div>
       </div>
 
@@ -439,7 +504,7 @@
     </div>
   </div>
 
-  <script src="script.js?v=10"></script>
+  <script src="script.js?v=21"></script>
   <script>
     lucide.createIcons();
     document.getElementById('current-date').innerText = new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -524,6 +589,31 @@
         <div class="client-profile-actions flex-end" style="gap: 1rem; align-items: center;">
           <p id="client-profile-feedback" class="loading client-profile-feedback" style="display: none; margin: 0;"></p>
           <button type="submit" class="btn btn-primary">Guardar mis datos</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Instagram Post Modal -->
+  <div id="instagram-modal" class="modal-overlay">
+    <div class="modal-content">
+      <h2><i data-lucide="image"></i> Crear Publicación</h2>
+      <form id="instagram-form">
+        <div class="form-group">
+          <label>URL de Imagen</label>
+          <input type="url" id="instagram-image" placeholder="https://example.com/image.jpg" required>
+        </div>
+        <div class="form-group">
+          <label>URL de Video (opcional)</label>
+          <input type="url" id="instagram-video" placeholder="https://example.com/video.mp4">
+        </div>
+        <div class="form-group">
+          <label>Descripción</label>
+          <textarea id="instagram-caption" placeholder="Escribe la descripción de la publicación..." rows="4" required></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeInstagramModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Publicar</button>
         </div>
       </form>
     </div>

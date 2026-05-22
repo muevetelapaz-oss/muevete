@@ -1,6 +1,6 @@
 from typing import Optional, List
 from sqlmodel import Field, SQLModel, Relationship
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 class Client(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -44,7 +44,7 @@ class ClassReservation(SQLModel, table=True):
     schedule_id: int = Field(foreign_key="classschedule.id")
     client_id: int = Field(foreign_key="client.id")
     reservation_date: date
-    created_at: datetime = Field(default_factory=lambda: datetime.now(datetime.timezone.utc).replace(tzinfo=None))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     schedule: Optional[ClassSchedule] = Relationship(back_populates="reservations")
     client: Optional[Client] = Relationship(back_populates="reservations")
@@ -80,3 +80,32 @@ class ClassReservationCreate(SQLModel):
     schedule_id: int
     client_id: int
     reservation_date: date
+
+
+class ScanEvent(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(foreign_key="client.id")
+    scanned_at: datetime = Field(default_factory=datetime.now)
+    schedule_title: Optional[str] = None
+    schedule_time: Optional[str] = None
+
+
+class QRScanRequest(SQLModel):
+    token: str
+
+class CheckinRequest(SQLModel):
+    client_id: int
+
+class InstagramPost(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    image_url: str
+    video_url: Optional[str] = None
+    caption: str
+    posted_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+class InstagramPostCreate(SQLModel):
+    image_url: str
+    video_url: Optional[str] = None
+    caption: str
+    posted_at: Optional[datetime] = None

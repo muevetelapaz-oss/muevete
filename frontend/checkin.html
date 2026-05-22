@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Muevete - Registra tu ingreso</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f0ff; min-height: 100vh; }
+    .header { background: linear-gradient(135deg, #7c3aed, #a855f7); color: white; padding: 1.5rem 1rem; text-align: center; }
+    .header h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
+    .header p { opacity: 0.85; font-size: 0.88rem; margin-top: 0.3rem; }
+    .container { max-width: 480px; margin: 0 auto; padding: 1rem; }
+    .search-box {
+      width: 100%; padding: 0.9rem 1.1rem; border-radius: 14px;
+      border: 2px solid #e5e7eb; font-size: 1rem; margin: 1rem 0;
+      outline: none; background: white; transition: border-color 0.15s;
+    }
+    .search-box:focus { border-color: #7c3aed; }
+    .client-btn {
+      width: 100%; padding: 0.9rem 1rem; background: white;
+      border: 1.5px solid #e5e7eb; border-radius: 14px;
+      margin-bottom: 0.5rem; cursor: pointer; text-align: left;
+      font-size: 0.95rem; font-weight: 600; display: flex;
+      align-items: center; gap: 0.8rem; transition: all 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .client-btn:hover { background: #f5f0ff; border-color: #7c3aed; }
+    .client-btn:active { transform: scale(0.98); }
+    .client-avatar {
+      width: 42px; height: 42px; border-radius: 50%;
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      color: white; display: flex; align-items: center;
+      justify-content: center; font-weight: 700; font-size: 1rem; flex-shrink: 0;
+    }
+    .client-info { flex: 1; min-width: 0; }
+    .client-name { font-weight: 700; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .client-plan { font-size: 0.73rem; color: #9ca3af; font-weight: 500; margin-top: 0.1rem; }
+    .success-section { padding-top: 1rem; }
+    .success-card {
+      background: white; border-radius: 20px; padding: 2.5rem 1.5rem;
+      text-align: center; border: 2px solid #7c3aed;
+      box-shadow: 0 8px 32px rgba(124,58,237,0.15);
+    }
+    .success-icon {
+      width: 72px; height: 72px;
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      color: white; border-radius: 50%; font-size: 2.2rem;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 1.25rem;
+    }
+    .success-name { font-size: 1.4rem; font-weight: 800; color: #111; }
+    .success-plan { display: inline-block; margin-top: 0.5rem; padding: 0.25rem 0.75rem; background: rgba(124,58,237,0.1); color: #7c3aed; border-radius: 999px; font-size: 0.8rem; font-weight: 700; }
+    .success-detail { color: #6b7280; font-size: 0.9rem; margin-top: 0.75rem; line-height: 1.5; }
+    .success-schedule { margin-top: 0.5rem; font-size: 0.85rem; color: #7c3aed; font-weight: 600; }
+    .already-badge { color: #f59e0b; font-size: 0.8rem; font-weight: 700; margin-top: 0.5rem; }
+    .btn-back {
+      width: 100%; padding: 0.9rem; background: linear-gradient(135deg, #7c3aed, #a855f7);
+      color: white; border: none; border-radius: 14px; font-size: 1rem;
+      font-weight: 700; cursor: pointer; margin-top: 1.75rem; transition: opacity 0.15s;
+    }
+    .btn-back:active { opacity: 0.85; }
+    .loading { text-align: center; padding: 2.5rem; color: #9ca3af; font-size: 0.95rem; }
+    .error-msg { text-align: center; padding: 1.25rem; color: #ef4444; font-size: 0.88rem; }
+    .empty-msg { text-align: center; padding: 2rem; color: #9ca3af; font-size: 0.9rem; }
+    .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid rgba(124,58,237,0.2); border-top-color: #7c3aed; border-radius: 50%; animation: spin 0.7s linear infinite; margin-bottom: 0.75rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Muevete Boutique</h1>
+    <p>Selecciona tu nombre para registrar tu ingreso</p>
+  </div>
+
+  <div class="container">
+    <div id="checkin-section">
+      <input type="text" class="search-box" id="search-input" placeholder="Buscar tu nombre..." oninput="filterClients()" autocomplete="off">
+      <div id="clients-list">
+        <div class="loading"><div class="spinner"></div><br>Cargando...</div>
+      </div>
+    </div>
+
+    <div id="success-section" style="display:none" class="success-section">
+      <div class="success-card">
+        <div class="success-icon">✓</div>
+        <div class="success-name" id="success-name"></div>
+        <div class="success-plan" id="success-plan"></div>
+        <div class="success-detail" id="success-time"></div>
+        <div class="success-schedule" id="success-schedule"></div>
+        <div class="already-badge" id="success-already" style="display:none">Ya registrado hoy anteriormente</div>
+        <button class="btn-back" onclick="goBack()">Listo</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allClients = [];
+
+    async function loadClients() {
+      try {
+        const res = await fetch('/api/clients');
+        allClients = await res.json();
+        renderClients(allClients);
+      } catch {
+        document.getElementById('clients-list').innerHTML = '<p class="error-msg">Error al cargar clientes. Intenta de nuevo.</p>';
+      }
+    }
+
+    function filterClients() {
+      const q = document.getElementById('search-input').value.toLowerCase().trim();
+      const filtered = q ? allClients.filter(c => c.name.toLowerCase().includes(q)) : allClients;
+      renderClients(filtered);
+    }
+
+    function renderClients(clients) {
+      const el = document.getElementById('clients-list');
+      if (clients.length === 0) {
+        el.innerHTML = '<p class="empty-msg">No se encontró ningún cliente.</p>';
+        return;
+      }
+      el.innerHTML = clients.map(c => {
+        const initials = c.name.split(' ').map(w => w[0]).filter(Boolean).join('').slice(0, 2).toUpperCase();
+        return `<button class="client-btn" onclick='checkin(${c.id}, ${JSON.stringify(c.name)}, ${JSON.stringify(c.plan)})'>
+          <div class="client-avatar">${initials}</div>
+          <div class="client-info">
+            <div class="client-name">${c.name}</div>
+            <div class="client-plan">${c.plan}</div>
+          </div>
+        </button>`;
+      }).join('');
+    }
+
+    async function checkin(clientId, clientName, clientPlan) {
+      document.getElementById('clients-list').innerHTML = '<div class="loading"><div class="spinner"></div><br>Registrando...</div>';
+      document.getElementById('search-input').style.display = 'none';
+
+      try {
+        const res = await fetch('/api/checkin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: clientId }),
+        });
+        const data = await res.json();
+
+        document.getElementById('checkin-section').style.display = 'none';
+        document.getElementById('success-section').style.display = '';
+        document.getElementById('success-name').textContent = data.client_name || clientName;
+        document.getElementById('success-plan').textContent = data.plan || clientPlan;
+        document.getElementById('success-time').textContent = 'Ingreso · ' + data.scan_time;
+
+        if (data.schedule) {
+          document.getElementById('success-schedule').textContent = data.schedule.title + ' · ' + data.schedule.start_time;
+        }
+        if (!data.attendance_created) {
+          document.getElementById('success-already').style.display = '';
+        }
+      } catch {
+        document.getElementById('clients-list').innerHTML = '<p class="error-msg">Error al registrar. Intenta de nuevo.</p>';
+        document.getElementById('search-input').style.display = '';
+        renderClients(allClients);
+      }
+    }
+
+    function goBack() {
+      document.getElementById('success-section').style.display = 'none';
+      document.getElementById('checkin-section').style.display = '';
+      document.getElementById('search-input').style.display = '';
+      document.getElementById('search-input').value = '';
+      document.getElementById('success-schedule').textContent = '';
+      document.getElementById('success-already').style.display = 'none';
+      renderClients(allClients);
+    }
+
+    loadClients();
+  </script>
+</body>
+</html>

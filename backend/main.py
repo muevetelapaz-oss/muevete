@@ -1,11 +1,14 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, APIRouter, Query
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 from typing import List
 from datetime import date, datetime, timedelta, timezone
 from collections import Counter
+import time
+import requests
 
 from database import create_db_and_tables, get_session
 from models import (
@@ -17,6 +20,11 @@ from models import (
     ClassScheduleCreate,
     ClassReservation,
     ClassReservationCreate,
+    ScanEvent,
+    QRScanRequest,
+    CheckinRequest,
+    InstagramPost,
+    InstagramPostCreate,
 )
 
 @asynccontextmanager
@@ -489,6 +497,301 @@ def get_dashboard_stats(session: Session = Depends(get_session)):
         "attendance_by_day": attendance_by_day,
         "average_attendance": round(avg_per_client, 1)
     }
+
+@api_router.post("/qr-scan")
+def process_qr_scan(data: QRScanRequest, session: Session = Depends(get_session)):
+    token = data.token.strip()
+    prefix = "MUEVETE-CLIENT-"
+    if not token.startswith(prefix):
+        raise HTTPException(status_code=400, detail="QR inválido")
+    try:
+        client_id = int(token[len(prefix):])
+    except ValueError:
+        raise HTTPException(status_code=400, detail="QR inválido")
+
+    client = session.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    now = datetime.now()
+    today = date.today()
+    current_time = now.strftime("%H:%M")
+    today_weekday = today.weekday()
+
+    schedules = session.exec(
+        select(ClassSchedule)
+        .where(ClassSchedule.day_of_week == today_weekday)
+        .where(ClassSchedule.is_active == True)
+    ).all()
+
+    matched_schedule = None
+    for s in schedules:
+        try:
+            sh, sm = map(int, s.start_time.split(":"))
+            ch, cm = map(int, current_time.split(":"))
+            diff = (ch * 60 + cm) - (sh * 60 + sm)
+            if -30 <= diff <= 60:
+                matched_schedule = s
+                break
+        except Exception:
+            pass
+
+    existing = session.exec(
+        select(Attendance)
+        .where(Attendance.client_id == client_id)
+        .where(Attendance.attendance_date == today)
+    ).first()
+
+    attendance_created = False
+    if not existing:
+        session.add(Attendance(
+            client_id=client_id,
+            attendance_date=today,
+            attendance_time=current_time,
+        ))
+        attendance_created = True
+
+    session.add(ScanEvent(
+        client_id=client_id,
+        schedule_title=matched_schedule.title if matched_schedule else None,
+        schedule_time=matched_schedule.start_time if matched_schedule else None,
+    ))
+    session.commit()
+
+    return {
+        "ok": True,
+        "client_id": client_id,
+        "client_name": client.name,
+        "plan": client.plan,
+        "scan_time": current_time,
+        "attendance_created": attendance_created,
+        "schedule": {
+            "title": matched_schedule.title,
+            "start_time": matched_schedule.start_time,
+        } if matched_schedule else None,
+    }
+
+
+@api_router.get("/scan-notifications")
+def get_scan_notifications(session: Session = Depends(get_session)):
+    cutoff = datetime.now() - timedelta(hours=2)
+    events = session.exec(
+        select(ScanEvent, Client)
+        .join(Client, ScanEvent.client_id == Client.id)
+        .where(ScanEvent.scanned_at >= cutoff)
+        .order_by(ScanEvent.scanned_at.desc())
+        .limit(20)
+    ).all()
+    return [
+        {
+            "id": scan.id,
+            "client_id": client.id,
+            "client_name": client.name,
+            "plan": client.plan,
+            "scanned_at": scan.scanned_at.isoformat(),
+            "schedule_title": scan.schedule_title,
+            "schedule_time": scan.schedule_time,
+        }
+        for scan, client in events
+    ]
+
+
+@api_router.post("/checkin")
+def process_checkin(data: CheckinRequest, session: Session = Depends(get_session)):
+    client = session.get(Client, data.client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    now = datetime.now()
+    today = date.today()
+    current_time = now.strftime("%H:%M")
+    today_weekday = today.weekday()
+
+    schedules = session.exec(
+        select(ClassSchedule)
+        .where(ClassSchedule.day_of_week == today_weekday)
+        .where(ClassSchedule.is_active == True)
+    ).all()
+
+    matched_schedule = None
+    for s in schedules:
+        try:
+            sh, sm = map(int, s.start_time.split(":"))
+            ch, cm = map(int, current_time.split(":"))
+            diff = (ch * 60 + cm) - (sh * 60 + sm)
+            if -30 <= diff <= 60:
+                matched_schedule = s
+                break
+        except Exception:
+            pass
+
+    existing = session.exec(
+        select(Attendance)
+        .where(Attendance.client_id == data.client_id)
+        .where(Attendance.attendance_date == today)
+    ).first()
+
+    attendance_created = False
+    if not existing:
+        session.add(Attendance(
+            client_id=data.client_id,
+            attendance_date=today,
+            attendance_time=current_time,
+        ))
+        attendance_created = True
+
+    session.add(ScanEvent(
+        client_id=data.client_id,
+        schedule_title=matched_schedule.title if matched_schedule else None,
+        schedule_time=matched_schedule.start_time if matched_schedule else None,
+    ))
+    session.commit()
+
+    return {
+        "ok": True,
+        "client_id": data.client_id,
+        "client_name": client.name,
+        "plan": client.plan,
+        "scan_time": current_time,
+        "attendance_created": attendance_created,
+        "schedule": {
+            "title": matched_schedule.title,
+            "start_time": matched_schedule.start_time,
+        } if matched_schedule else None,
+    }
+
+
+@app.get("/checkin")
+async def checkin_page():
+    return FileResponse("../frontend/checkin.html")
+
+@api_router.get("/instagram-posts")
+def get_instagram_posts(skip: int = Query(0, ge=0), limit: int = Query(12, ge=1, le=100), session: Session = Depends(get_session)):
+    posts = session.exec(
+        select(InstagramPost)
+        .order_by(InstagramPost.posted_at.desc())
+        .offset(skip)
+        .limit(limit)
+    ).all()
+
+    total = session.exec(select(InstagramPost)).all()
+
+    return {
+        "posts": [
+            {
+                "id": p.id,
+                "image_url": p.image_url,
+                "video_url": p.video_url,
+                "caption": p.caption,
+                "posted_at": p.posted_at.isoformat(),
+            }
+            for p in posts
+        ],
+        "total": len(total),
+        "skip": skip,
+        "limit": limit,
+    }
+
+@api_router.post("/instagram-posts", response_model=InstagramPost)
+def create_instagram_post(post_data: InstagramPostCreate, session: Session = Depends(get_session)):
+    post_dict = post_data.model_dump()
+    if post_dict.get("posted_at") is None:
+        post_dict["posted_at"] = datetime.now()
+    post = InstagramPost(**post_dict)
+    session.add(post)
+    session.commit()
+    session.refresh(post)
+    return post
+
+@api_router.delete("/instagram-posts/{post_id}")
+def delete_instagram_post(post_id: int, session: Session = Depends(get_session)):
+    post = session.get(InstagramPost, post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    session.delete(post)
+    session.commit()
+    return {"ok": True}
+
+IG_USERNAME = "muevete.estudiofitness"
+IG_CACHE: dict = {"data": None, "ts": 0.0}
+IG_CACHE_TTL = 600  # 10 minutes
+
+IG_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+    "X-IG-App-ID": "936619743392459",
+    "Accept": "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": f"https://www.instagram.com/{IG_USERNAME}/",
+}
+
+
+def fetch_instagram_feed(force: bool = False):
+    now = time.time()
+    if not force and IG_CACHE["data"] and (now - IG_CACHE["ts"]) < IG_CACHE_TTL:
+        return IG_CACHE["data"]
+
+    url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={IG_USERNAME}"
+    res = requests.get(url, headers=IG_HEADERS, timeout=10)
+    res.raise_for_status()
+    data = res.json()
+    user = data["data"]["user"]
+    edges = user.get("edge_owner_to_timeline_media", {}).get("edges", [])
+
+    posts = []
+    for e in edges:
+        n = e["node"]
+        cap_edges = n.get("edge_media_to_caption", {}).get("edges", [])
+        caption = cap_edges[0]["node"]["text"] if cap_edges else ""
+        posts.append({
+            "shortcode": n["shortcode"],
+            "image_url": n.get("display_url"),
+            "thumbnail_url": n.get("thumbnail_src") or n.get("display_url"),
+            "is_video": bool(n.get("is_video")),
+            "is_carousel": n.get("__typename") == "GraphSidecar",
+            "caption": caption,
+            "posted_at": n.get("taken_at_timestamp"),
+            "post_url": f"https://www.instagram.com/p/{n['shortcode']}/",
+        })
+
+    payload = {
+        "username": user["username"],
+        "full_name": user.get("full_name"),
+        "biography": user.get("biography"),
+        "profile_pic_url": user.get("profile_pic_url_hd") or user.get("profile_pic_url"),
+        "followers": user.get("edge_followed_by", {}).get("count"),
+        "posts_count": user.get("edge_owner_to_timeline_media", {}).get("count"),
+        "posts": posts,
+    }
+    IG_CACHE["data"] = payload
+    IG_CACHE["ts"] = now
+    return payload
+
+
+@api_router.get("/instagram-feed")
+def get_instagram_feed(refresh: bool = Query(False)):
+    try:
+        return fetch_instagram_feed(force=refresh)
+    except Exception as e:
+        if IG_CACHE["data"]:
+            return IG_CACHE["data"]
+        raise HTTPException(status_code=502, detail=f"Instagram fetch failed: {e}")
+
+
+@api_router.get("/instagram-image")
+def proxy_instagram_image(url: str = Query(...)):
+    if "cdninstagram.com" not in url and "fbcdn.net" not in url:
+        raise HTTPException(status_code=400, detail="Invalid host")
+    try:
+        r = requests.get(url, headers={"User-Agent": IG_HEADERS["User-Agent"]}, timeout=15, stream=True)
+        r.raise_for_status()
+        return Response(
+            content=r.content,
+            media_type=r.headers.get("Content-Type", "image/jpeg"),
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Image fetch failed: {e}")
+
 
 app.include_router(api_router)
 app.mount("/", StaticFiles(directory="../frontend", html=True), name="frontend")

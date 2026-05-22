@@ -3,6 +3,7 @@
    ══════════════════════════════════════════════════════════ */
 
 const API = '/api';
+const GYM_CHECKIN_TOKEN = 'MUEVETE-GYM-CHECKIN';
 let currentRole = null;   // 'admin' | 'client'
 let allClients = [];
 let currentPage = 1;
@@ -15,6 +16,11 @@ let clientAttCalendar = null;
 let hoursChart = null;
 let daysChart = null;
 let clientProfileData = null;
+let gymQrCodeInstance = null;
+let lastScanTimestamp = null;
+let scanPollInterval = null;
+let clientHtml5QrScanner = null;
+let clientScannerRunning = false;
 
 /* ─── Login ────────────────────────────────────────────── */
 
@@ -90,10 +96,12 @@ function enterApp(role) {
     if (lastView && lastView !== 'dashboard') {
       switchView(lastView);
     }
-    
+
     loadAllData();
+    startScanNotificationPolling();
   } else {
     document.getElementById('admin-nav').style.display = 'none';
+    document.getElementById('client-nav').style.display = '';
     document.getElementById('mobile-nav').style.display = 'none';
     document.getElementById('client-mobile-nav').style.display = 'flex';
     document.getElementById('admin-content').style.display = 'none';
@@ -110,9 +118,14 @@ function logout() {
   currentRole = null;
   localStorage.removeItem('muevete_role');
   localStorage.removeItem('muevete_last_view');
+  if (scanPollInterval) { clearInterval(scanPollInterval); scanPollInterval = null; }
+  lastScanTimestamp = null;
+  gymQrCodeInstance = null;
   document.getElementById('login-user').value = '';
   document.getElementById('login-pass').value = '';
   document.getElementById('login-error').style.display = 'none';
+  document.getElementById('admin-nav').style.display = 'none';
+  document.getElementById('client-nav').style.display = 'none';
   document.getElementById('mobile-nav').style.display = 'none';
   document.getElementById('client-mobile-nav').style.display = 'none';
   const profileBtn = document.getElementById('client-profile-btn');
@@ -172,6 +185,8 @@ function switchView(viewName, btn) {
     setTimeout(() => mainCalendar?.updateSize(), 100);
   }
   if (viewName === 'schedule') loadAdminScheduleView();
+  if (viewName === 'qr') loadGymQRCode();
+  if (viewName === 'instagram') loadInstagramPosts(0, 'admin-instagram-feed');
   
   // Scroll to top on view change
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -778,7 +793,7 @@ function renderTimetable(schedules, boardEl, isClient, clientId) {
           const alreadyReserved = slot.reservations && slot.reservations.some(r => r.client_id === clientId);
 
           html += `<div class="timetable-slot-meta">
-            <span>${slot.reserved_count} anotado(s)</span>
+            <span>${slot.reserved_count} ingreso(s)</span>
           </div>
           <div class="schedule-action-btns">`;
 
@@ -793,7 +808,7 @@ function renderTimetable(schedules, boardEl, isClient, clientId) {
         } else {
           // Admin view
           html += `<div class="timetable-slot-meta" style="cursor:pointer" onclick='openReservationsModal(${JSON.stringify(slot.reservations || []).replace(/'/g, "&apos;")}, "${slot.title}")'>
-            <span style="text-decoration: underline; color: var(--primary); font-weight:700">${slot.reserved_count} anotado(s)</span>
+            <span style="text-decoration: underline; color: var(--primary); font-weight:700">${slot.reserved_count} ingreso(s)</span>
           </div>
           <div class="schedule-action-btns">
             <button class="btn btn-secondary btn-sm" style="flex:1; padding:0.2rem; font-size: 0.65rem" onclick='editSchedule(${slot.id}, ${JSON.stringify({
@@ -923,7 +938,7 @@ function renderClientProfile(client) {
   }
 }
 
-document.getElementById('client-profile-form').addEventListener('submit', async e => {
+document.getElementById('client-profile-form')?.addEventListener('submit', async e => {
   e.preventDefault();
   if (!clientProfileData) return;
 
@@ -1065,16 +1080,121 @@ function closeClientProfileModal() {
   document.getElementById('client-profile-modal').style.display = 'none';
 }
 
+/* ══════════════════════════════════════════════════════════
+   QR CODE – Single gym check-in QR
+   ══════════════════════════════════════════════════════════ */
+
+function loadGymQRCode() {
+  const container = document.getElementById('gym-qr-container');
+  if (!container) return;
+  container.innerHTML = '';
+  gymQrCodeInstance = null;
+  gymQrCodeInstance = new QRCode(container, {
+    text: GYM_CHECKIN_TOKEN,
+    width: 260,
+    height: 260,
+    colorDark: '#7c3aed',
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.M,
+  });
+}
+
+/* ══════════════════════════════════════════════════════════
+   SCAN NOTIFICATIONS – Real-time admin alerts
+   ══════════════════════════════════════════════════════════ */
+
+function startScanNotificationPolling() {
+  if (scanPollInterval) clearInterval(scanPollInterval);
+  pollScanNotifications(); // immediate first load
+  scanPollInterval = setInterval(pollScanNotifications, 5000);
+}
+
+async function pollScanNotifications() {
+  if (currentRole !== 'admin') return;
+  try {
+    const res = await fetch(`${API}/scan-notifications`);
+    const notifications = await res.json();
+
+    if (notifications.length > 0) {
+      const newest = notifications[0].scanned_at;
+      if (lastScanTimestamp === null) {
+        lastScanTimestamp = newest;
+      } else if (newest > lastScanTimestamp) {
+        const newOnes = notifications.filter(n => n.scanned_at > lastScanTimestamp);
+        lastScanTimestamp = newest;
+        newOnes.forEach(n => {
+          showScanToast(n.client_name, n.schedule_title, n.scanned_at.slice(11, 16));
+        });
+      }
+      renderScanNotifications(notifications);
+    }
+  } catch { /* silent */ }
+}
+
+function renderScanNotifications(scans) {
+  const notifEl = document.getElementById('schedule-notifications');
+  if (!notifEl) return;
+
+  const scanHtml = scans.slice(0, 8).map(n => {
+    const time = n.scanned_at.slice(11, 16);
+    const schedule = n.schedule_title ? ` · ${n.schedule_title}` : '';
+    return `<div class="stats-item scan-notif-item">
+      <span class="stats-item-name" style="font-size:0.82rem">
+        <span class="scan-badge">QR</span> ${n.client_name} ingresó${schedule}
+      </span>
+      <span class="stats-item-value" style="font-size:0.7rem">${time}</span>
+    </div>`;
+  }).join('');
+
+  notifEl.innerHTML = scanHtml || '<p style="color:var(--text-muted);font-size:0.85rem;text-align:center;padding:1rem">Sin ingresos recientes</p>';
+}
+
+function showScanToast(clientName, scheduleTitle, scanTime) {
+  const toast = document.createElement('div');
+  toast.className = 'scan-toast';
+  toast.innerHTML = `
+    <div class="scan-toast-icon">📱</div>
+    <div class="scan-toast-body">
+      <strong>${clientName}</strong>
+      <span>${scheduleTitle ? scheduleTitle + ' · ' : ''}${scanTime}</span>
+    </div>
+  `;
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => toast.classList.add('visible'));
+  });
+  setTimeout(() => {
+    toast.classList.remove('visible');
+    setTimeout(() => toast.remove(), 400);
+  }, 5000);
+}
+
 /* ─── Client View Navigation ─────────────────────────── */
 function switchClientView(viewName, btn) {
+  // Stop any active scanner when switching away
+  if (viewName !== 'escanear') stopClientScanner();
+
   // Hide all client views
   document.querySelectorAll('.client-view').forEach(v => v.classList.add('hidden'));
   const target = document.getElementById('client-view-' + viewName);
   if (target) target.classList.remove('hidden');
 
-  // Update nav buttons
-  document.querySelectorAll('.client-nav-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
+  if (viewName === 'escanear') startClientScanner();
+  if (viewName === 'posts') loadInstagramPosts(0);
+
+  // Update all nav buttons (both desktop and mobile)
+  document.querySelectorAll('.client-nav-btn, #client-nav .nav-btn').forEach(b => b.classList.remove('active'));
+  if (btn) {
+    btn.classList.add('active');
+    // Sync the other nav
+    document.querySelectorAll('.client-nav-btn, #client-nav .nav-btn').forEach(b => {
+      if (b !== btn && b.getAttribute('onclick')?.includes(viewName)) b.classList.add('active');
+    });
+  } else {
+    document.querySelectorAll('.client-nav-btn, #client-nav .nav-btn').forEach(b => {
+      if (b.getAttribute('onclick')?.includes(viewName)) b.classList.add('active');
+    });
+  }
 
   // Re-render calendar when switching to asistencia
   if (viewName === 'asistencia' && clientAttCalendar) {
@@ -1083,4 +1203,279 @@ function switchClientView(viewName, btn) {
 
   // Scroll to top
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ══════════════════════════════════════════════════════════
+   CLIENT QR SCANNER – Scan gym QR from logged-in account
+   ══════════════════════════════════════════════════════════ */
+
+function startClientScanner() {
+  if (clientScannerRunning) return;
+  const readerEl = document.getElementById('client-qr-reader');
+  if (!readerEl) return;
+
+  readerEl.innerHTML = '';
+  document.getElementById('client-scan-result').style.display = 'none';
+  document.getElementById('client-scan-error').style.display = 'none';
+  document.getElementById('client-scan-restart').style.display = 'none';
+
+  if (typeof Html5Qrcode === 'undefined') {
+    showClientScanError('No se pudo cargar el escáner. Recarga la página.');
+    return;
+  }
+
+  clientHtml5QrScanner = new Html5Qrcode('client-qr-reader');
+  Html5Qrcode.getCameras().then(cameras => {
+    if (!cameras || cameras.length === 0) {
+      showClientScanError('No se encontró ninguna cámara en este dispositivo.');
+      return;
+    }
+    const cameraId = cameras.find(c => /back|rear|environment/i.test(c.label))?.id || cameras[cameras.length - 1].id;
+    clientHtml5QrScanner.start(
+      cameraId,
+      { fps: 10, qrbox: { width: 240, height: 240 } },
+      (decodedText) => {
+        if (clientScannerRunning) {
+          clientScannerRunning = false;
+          clientHtml5QrScanner.stop().then(() => processClientScan(decodedText)).catch(console.error);
+        }
+      },
+      () => {}
+    ).then(() => {
+      clientScannerRunning = true;
+    }).catch(err => {
+      showClientScanError('No se pudo acceder a la cámara. Verifica los permisos.');
+      console.error('Client scanner start error:', err);
+    });
+  }).catch(err => {
+    showClientScanError('Error accediendo a cámaras: ' + err);
+  });
+}
+
+function stopClientScanner() {
+  clientScannerRunning = false;
+  if (clientHtml5QrScanner) {
+    try { clientHtml5QrScanner.stop().catch(() => {}); } catch {}
+    clientHtml5QrScanner = null;
+  }
+  const reader = document.getElementById('client-qr-reader');
+  if (reader) reader.innerHTML = '';
+}
+
+function showClientScanError(msg) {
+  const el = document.getElementById('client-scan-error');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
+  document.getElementById('client-scan-restart').style.display = '';
+}
+
+async function processClientScan(token) {
+  const cleanToken = (token || '').trim();
+  if (cleanToken !== GYM_CHECKIN_TOKEN) {
+    showClientScanError('QR no válido. Asegúrate de escanear el QR de la academia.');
+    return;
+  }
+  if (!clientProfileData || !clientProfileData.id) {
+    showClientScanError('No se pudo identificar tu perfil. Recarga la página.');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/checkin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id: clientProfileData.id }),
+    });
+    const data = await res.json();
+    const resultEl = document.getElementById('client-scan-result');
+
+    if (res.ok) {
+      resultEl.innerHTML = `
+        <div class="qr-success-card">
+          <div class="qr-success-check">✓</div>
+          <h3>¡Bienvenido ${data.client_name}!</h3>
+          <span class="badge badge-plan" style="margin:0.25rem auto">${data.plan}</span>
+          ${data.schedule ? `<p class="qr-success-schedule"><strong>${data.schedule.title}</strong> · ${data.schedule.start_time}</p>` : ''}
+          <p class="qr-success-time">${data.attendance_created ? 'Ingreso registrado' : 'Ya registrado hoy'} · ${data.scan_time}</p>
+        </div>
+      `;
+      resultEl.style.display = 'block';
+      document.getElementById('client-scan-restart').style.display = '';
+    } else {
+      showClientScanError(data.detail || 'Error al registrar ingreso');
+    }
+  } catch {
+    showClientScanError('Error de conexión con el servidor');
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   INSTAGRAM POSTS FEED
+   ══════════════════════════════════════════════════════════ */
+
+async function loadInstagramPosts(skip, containerId = 'instagram-feed') {
+  const feed = document.getElementById(containerId);
+  const moreBtn = document.getElementById('load-more-container');
+  if (moreBtn) moreBtn.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/instagram-feed');
+    if (!res.ok) throw new Error('feed ' + res.status);
+    const data = await res.json();
+
+    if (!data.posts || data.posts.length === 0) {
+      feed.innerHTML = '<p class="empty-msg">Sin publicaciones aún</p>';
+      return;
+    }
+
+    renderInstagramFeed(data.posts, containerId);
+  } catch (err) {
+    feed.innerHTML = '<p class="error-msg">Error al cargar publicaciones de Instagram</p>';
+  }
+}
+
+function renderInstagramFeed(posts, containerId = 'instagram-feed') {
+  const feed = document.getElementById(containerId);
+  feed.innerHTML = posts.map(post => {
+    const imgSrc = `/api/instagram-image?url=${encodeURIComponent(post.thumbnail_url || post.image_url)}`;
+    const caption = (post.caption || '').substring(0, 100) + ((post.caption || '').length > 100 ? '...' : '');
+    const icon = post.is_video ? 'play' : (post.is_carousel ? 'copy' : 'instagram');
+
+    return `
+      <div class="instagram-post" onclick="openInstagramPost('${post.shortcode}')">
+        <img class="instagram-post-media" src="${imgSrc}" alt="Post" loading="lazy">
+        <div class="instagram-post-overlay">
+          <div class="instagram-post-icon"><i data-lucide="${icon}"></i></div>
+        </div>
+        <div class="instagram-post-caption">${caption}</div>
+      </div>
+    `;
+  }).join('');
+
+  lucide.createIcons();
+}
+
+function openInstagramPost(shortcode) {
+  const webUrl = `https://www.instagram.com/p/${shortcode}/`;
+  if (/mobile|android|iphone|ipad|ipod/i.test(navigator.userAgent)) {
+    window.location.href = `instagram://media?shortcode=${shortcode}`;
+    setTimeout(() => { window.location.href = webUrl; }, 800);
+  } else {
+    window.open(webUrl, '_blank');
+  }
+}
+
+function openInstagramLink(_) {
+  openInstagramPost('');
+}
+
+function loadMorePosts() {
+  loadInstagramPosts(0);
+}
+
+function showPushNotificationForInstagram() {
+  if ('serviceWorker' in navigator && 'PushManager' in window) {
+    navigator.serviceWorker.ready.then(reg => {
+      if (reg.active) {
+        reg.active.postMessage({ action: 'notify', title: 'Muevete', message: 'Abriendo Instagram...' });
+      }
+    });
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   ADMIN INSTAGRAM MANAGEMENT
+   ══════════════════════════════════════════════════════════ */
+
+function openInstagramModal() {
+  document.getElementById('instagram-modal').style.display = 'flex';
+  document.getElementById('instagram-form').reset();
+}
+
+function closeInstagramModal() {
+  document.getElementById('instagram-modal').style.display = 'none';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const form = document.getElementById('instagram-form');
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const image = document.getElementById('instagram-image').value;
+      const video = document.getElementById('instagram-video').value;
+      const caption = document.getElementById('instagram-caption').value;
+
+      try {
+        const res = await fetch('/api/instagram-posts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image_url: image,
+            video_url: video || null,
+            caption: caption,
+          }),
+        });
+
+        if (res.ok) {
+          closeInstagramModal();
+          loadAdminInstagramPosts();
+          showNotification('Publicación creada exitosamente', 'success');
+        } else {
+          showNotification('Error al crear la publicación', 'error');
+        }
+      } catch (err) {
+        showNotification('Error de conexión', 'error');
+      }
+    });
+  }
+});
+
+async function loadAdminInstagramPosts() {
+  const container = document.getElementById('admin-instagram-list');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/instagram-posts?limit=50');
+    const data = await res.json();
+
+    if (data.posts.length === 0) {
+      container.innerHTML = '<p class="empty-msg">Sin publicaciones aún</p>';
+      return;
+    }
+
+    container.innerHTML = data.posts.map(post => {
+      const mediaUrl = post.video_url || post.image_url;
+      const mediaType = post.video_url ? 'video' : 'image';
+      const date = new Date(post.posted_at).toLocaleDateString('es-ES');
+
+      return `
+        <div class="card" style="padding:1rem; text-align:center; position:relative">
+          ${mediaType === 'video' ? `<video src="${mediaUrl}" style="width:100%; height:150px; object-fit:cover; border-radius:8px;" muted></video>` : `<img src="${mediaUrl}" style="width:100%; height:150px; object-fit:cover; border-radius:8px;" alt="Post">`}
+          <p style="font-size:0.85rem; color:var(--text-muted); margin:0.5rem 0 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${post.caption.substring(0, 30)}</p>
+          <small style="color:var(--text-muted); display:block; margin-top:0.3rem">${date}</small>
+          <button type="button" class="btn btn-sm btn-danger" onclick="deleteInstagramPost(${post.id})" style="margin-top:0.5rem; width:100%">Eliminar</button>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    container.innerHTML = '<p class="error-msg">Error al cargar publicaciones</p>';
+  }
+}
+
+async function deleteInstagramPost(postId) {
+  if (!confirm('¿Eliminar esta publicación?')) return;
+
+  try {
+    const res = await fetch(`/api/instagram-posts/${postId}`, { method: 'DELETE' });
+    if (res.ok) {
+      loadAdminInstagramPosts();
+      showNotification('Publicación eliminada', 'success');
+    } else {
+      showNotification('Error al eliminar', 'error');
+    }
+  } catch (err) {
+    showNotification('Error de conexión', 'error');
+  }
 }
