@@ -26,5 +26,8 @@ Thumbs.db
 *.xlsx
 *.xls
 
+# Claude Code
+.claude/
+
 # Logs
 *.log
