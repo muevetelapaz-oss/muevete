@@ -11,7 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
-from typing import List
+from sqlalchemy import func
+from typing import List, Optional
+import re
 from datetime import date, datetime, timedelta, timezone
 from collections import Counter
 import time
@@ -79,11 +81,31 @@ def schedule_to_dict(schedule: ClassSchedule, reservation_date: date | None = No
         "reservations": reservation_list,
     }
 
-@api_router.get("/clients", response_model=List[Client])
+def get_plan_limit(plan: Optional[str]) -> Optional[int]:
+    """Number of classes a plan allows. None means unlimited."""
+    if not plan:
+        return 8
+    p = plan.lower()
+    if "ilimitado" in p:
+        return None
+    match = re.search(r"(\d+)", p)
+    return int(match.group(1)) if match else 8
+
+
+@api_router.get("/clients")
 def read_clients(session: Session = Depends(get_session)):
     clients = session.exec(select(Client)).all()
-    # Eagerly load attendances if needed, but sqlmodel relationship resolves it implicitly if configured, or we can just send the clients as is.
-    return clients
+    # Count attendances per client in a single query so the table can show X / limit.
+    counts = dict(
+        session.exec(
+            select(Attendance.client_id, func.count(Attendance.id))
+            .group_by(Attendance.client_id)
+        ).all()
+    )
+    return [
+        {**client.model_dump(), "attendance_count": counts.get(client.id, 0)}
+        for client in clients
+    ]
 
 @api_router.post("/clients", response_model=Client)
 def create_client(client_data: ClientCreate, session: Session = Depends(get_session)):
@@ -639,6 +661,23 @@ def process_checkin(data: CheckinRequest, session: Session = Depends(get_session
         .where(Attendance.attendance_date == today)
     ).first()
 
+    total_count = session.exec(
+        select(func.count(Attendance.id)).where(Attendance.client_id == data.client_id)
+    ).one()
+    limit = get_plan_limit(client.plan)
+
+    # Block a new entry once the plan limit is reached (unlimited plans pass through).
+    if not existing and limit is not None and total_count >= limit:
+        return {
+            "ok": False,
+            "limit_reached": True,
+            "client_id": data.client_id,
+            "client_name": client.name,
+            "plan": client.plan,
+            "count": total_count,
+            "limit": limit,
+        }
+
     attendance_created = False
     if not existing:
         session.add(Attendance(
@@ -655,6 +694,8 @@ def process_checkin(data: CheckinRequest, session: Session = Depends(get_session
     ))
     session.commit()
 
+    new_count = total_count + (1 if attendance_created else 0)
+
     return {
         "ok": True,
         "client_id": data.client_id,
@@ -662,6 +703,8 @@ def process_checkin(data: CheckinRequest, session: Session = Depends(get_session
         "plan": client.plan,
         "scan_time": current_time,
         "attendance_created": attendance_created,
+        "count": new_count,
+        "limit": limit,
         "schedule": {
             "title": matched_schedule.title,
             "start_time": matched_schedule.start_time,

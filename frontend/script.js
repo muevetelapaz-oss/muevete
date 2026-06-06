@@ -301,7 +301,7 @@ function renderClientsTable() {
   } else {
     tbody.innerHTML = pageClients.map((c, idx) => {
       const num = start + idx + 1;
-      const attendanceCount = (c.attendances || []).length;
+      const attendanceCount = c.attendance_count || 0;
       const planLimit = getPlanLimit(c.plan);
       const limitText = planLimit === Infinity ? '∞' : planLimit;
       const birthDisplay = c.birth_date ? formatBirthDate(c.birth_date) : '—';
@@ -320,6 +320,9 @@ function renderClientsTable() {
         </td>
         <td>
           <div style="display:flex;gap:0.35rem; flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="registerEntry(${c.id})" title="Registrar entrada">
+              <i data-lucide="log-in" style="width:14px;height:14px"></i>
+            </button>
             <button class="btn btn-secondary btn-sm" onclick="openAttendanceModal(${c.id})" title="Gestionar asistencias">
               <i data-lucide="calendar-days" style="width:14px;height:14px"></i>
             </button>
@@ -456,6 +459,37 @@ async function deleteClient(clientId) {
     }
   } catch (err) {
     console.error('Delete client error:', err);
+  }
+}
+
+/* ─── Registrar entrada (admin, para clientes sin link QR) ─ */
+async function registerEntry(clientId) {
+  const client = allClients.find(c => c.id === clientId);
+  if (!client) return;
+  try {
+    const res = await fetch(`${API}/checkin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id: clientId }),
+    });
+    const data = await res.json();
+
+    if (data.limit_reached) {
+      alert(`${client.name} ya alcanzó el límite de su plan (${data.count}/${data.limit}). No se registró la entrada.`);
+      return;
+    }
+    if (data.ok) {
+      if (data.attendance_created) {
+        showScanToast(client.name, data.schedule ? data.schedule.title : null, data.scan_time);
+      } else {
+        alert(`${client.name} ya tenía una entrada registrada hoy.`);
+      }
+      await loadClients();
+      loadDashboard();
+    }
+  } catch (err) {
+    console.error('Register entry error:', err);
+    alert('Error al registrar la entrada. Intenta de nuevo.');
   }
 }
 
