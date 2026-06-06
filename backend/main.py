@@ -1,10 +1,3 @@
-# Force Bolivia time (UTC-4) so datetime.now()/date.today() reflect local time
-# even when the host (e.g. Railway) runs in UTC.
-import os
-import time as _time
-os.environ["TZ"] = "America/La_Paz"
-_time.tzset()
-
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, APIRouter, Query
 from fastapi.staticfiles import StaticFiles
@@ -15,6 +8,18 @@ from sqlalchemy import func
 from typing import List, Optional
 import re
 from datetime import date, datetime, timedelta, timezone
+
+# Bolivia is UTC-4 year-round (no DST). Use a fixed offset so we don't depend on
+# the host having OS timezone data (Railway containers don't), then strip tzinfo
+# to keep storing naive datetimes like the rest of the app.
+BOLIVIA_TZ = timezone(timedelta(hours=-4))
+
+def now_bo() -> datetime:
+    return datetime.now(BOLIVIA_TZ).replace(tzinfo=None)
+
+def today_bo() -> date:
+    return now_bo().date()
+
 from collections import Counter
 import time
 import requests
@@ -55,7 +60,7 @@ app.add_middleware(
 
 
 def next_occurrence_for_weekday(day_of_week: int, reference: date | None = None) -> date:
-    ref = reference or date.today()
+    ref = reference or today_bo()
     days_ahead = (day_of_week - ref.weekday()) % 7
     return ref + timedelta(days=days_ahead)
 
@@ -279,7 +284,7 @@ def get_schedule_overview(
     days_ahead: int = Query(default=7, ge=1, le=30),
     session: Session = Depends(get_session),
 ):
-    today = date.today()
+    today = today_bo()
     end_date = today + timedelta(days=days_ahead)
     reservations = session.exec(
         select(ClassReservation, ClassSchedule, Client)
@@ -402,7 +407,7 @@ def get_calendar_events(session: Session = Depends(get_session)):
     
     # Add birthdays only
     clients = session.exec(select(Client)).all()
-    today = date.today()
+    today = today_bo()
     for c in clients:
         if c.birth_date:
             try:
@@ -462,7 +467,7 @@ def get_dashboard_stats(session: Session = Depends(get_session)):
     total_clients = len(clients)
     
     # Upcoming Birthdays (next 15 days)
-    today = date.today()
+    today = today_bo()
     upcoming_bdays = []
     for c in clients:
         if c.birth_date:
@@ -542,8 +547,8 @@ def process_qr_scan(data: QRScanRequest, session: Session = Depends(get_session)
     if not client:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
-    now = datetime.now()
-    today = date.today()
+    now = now_bo()
+    today = today_bo()
     current_time = now.strftime("%H:%M")
     today_weekday = today.weekday()
 
@@ -565,27 +570,40 @@ def process_qr_scan(data: QRScanRequest, session: Session = Depends(get_session)
         except Exception:
             pass
 
-    existing = session.exec(
-        select(Attendance)
-        .where(Attendance.client_id == client_id)
-        .where(Attendance.attendance_date == today)
-    ).first()
+    total_count = session.exec(
+        select(func.count(Attendance.id)).where(Attendance.client_id == client_id)
+    ).one()
+    limit = get_plan_limit(client.plan)
 
-    attendance_created = False
-    if not existing:
-        session.add(Attendance(
-            client_id=client_id,
-            attendance_date=today,
-            attendance_time=current_time,
-        ))
-        attendance_created = True
+    # Block the entry once the plan limit is reached (unlimited plans pass through).
+    if limit is not None and total_count >= limit:
+        return {
+            "ok": False,
+            "limit_reached": True,
+            "client_id": client_id,
+            "client_name": client.name,
+            "plan": client.plan,
+            "count": total_count,
+            "limit": limit,
+        }
+
+    # Every entry counts as one class used.
+    session.add(Attendance(
+        client_id=client_id,
+        attendance_date=today,
+        attendance_time=current_time,
+    ))
+    attendance_created = True
 
     session.add(ScanEvent(
         client_id=client_id,
+        scanned_at=now,
         schedule_title=matched_schedule.title if matched_schedule else None,
         schedule_time=matched_schedule.start_time if matched_schedule else None,
     ))
     session.commit()
+
+    new_count = total_count + 1
 
     return {
         "ok": True,
@@ -594,6 +612,8 @@ def process_qr_scan(data: QRScanRequest, session: Session = Depends(get_session)
         "plan": client.plan,
         "scan_time": current_time,
         "attendance_created": attendance_created,
+        "count": new_count,
+        "limit": limit,
         "schedule": {
             "title": matched_schedule.title,
             "start_time": matched_schedule.start_time,
@@ -604,7 +624,7 @@ def process_qr_scan(data: QRScanRequest, session: Session = Depends(get_session)
 @api_router.get("/scan-notifications")
 def get_scan_notifications(session: Session = Depends(get_session)):
     # Show all of today's entries (since midnight), not just the last couple hours.
-    cutoff = datetime.combine(date.today(), datetime.min.time())
+    cutoff = datetime.combine(today_bo(), datetime.min.time())
     events = session.exec(
         select(ScanEvent, Client)
         .join(Client, ScanEvent.client_id == Client.id)
@@ -632,8 +652,8 @@ def process_checkin(data: CheckinRequest, session: Session = Depends(get_session
     if not client:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
-    now = datetime.now()
-    today = date.today()
+    now = now_bo()
+    today = today_bo()
     current_time = now.strftime("%H:%M")
     today_weekday = today.weekday()
 
@@ -655,19 +675,13 @@ def process_checkin(data: CheckinRequest, session: Session = Depends(get_session
         except Exception:
             pass
 
-    existing = session.exec(
-        select(Attendance)
-        .where(Attendance.client_id == data.client_id)
-        .where(Attendance.attendance_date == today)
-    ).first()
-
     total_count = session.exec(
         select(func.count(Attendance.id)).where(Attendance.client_id == data.client_id)
     ).one()
     limit = get_plan_limit(client.plan)
 
-    # Block a new entry once the plan limit is reached (unlimited plans pass through).
-    if not existing and limit is not None and total_count >= limit:
+    # Block the entry once the plan limit is reached (unlimited plans pass through).
+    if limit is not None and total_count >= limit:
         return {
             "ok": False,
             "limit_reached": True,
@@ -678,23 +692,23 @@ def process_checkin(data: CheckinRequest, session: Session = Depends(get_session
             "limit": limit,
         }
 
-    attendance_created = False
-    if not existing:
-        session.add(Attendance(
-            client_id=data.client_id,
-            attendance_date=today,
-            attendance_time=current_time,
-        ))
-        attendance_created = True
+    # Every entry counts as one class used.
+    session.add(Attendance(
+        client_id=data.client_id,
+        attendance_date=today,
+        attendance_time=current_time,
+    ))
+    attendance_created = True
 
     session.add(ScanEvent(
         client_id=data.client_id,
+        scanned_at=now,
         schedule_title=matched_schedule.title if matched_schedule else None,
         schedule_time=matched_schedule.start_time if matched_schedule else None,
     ))
     session.commit()
 
-    new_count = total_count + (1 if attendance_created else 0)
+    new_count = total_count + 1
 
     return {
         "ok": True,
@@ -747,7 +761,7 @@ def get_instagram_posts(skip: int = Query(0, ge=0), limit: int = Query(12, ge=1,
 def create_instagram_post(post_data: InstagramPostCreate, session: Session = Depends(get_session)):
     post_dict = post_data.model_dump()
     if post_dict.get("posted_at") is None:
-        post_dict["posted_at"] = datetime.now()
+        post_dict["posted_at"] = now_bo()
     post = InstagramPost(**post_dict)
     session.add(post)
     session.commit()

@@ -1,6 +1,12 @@
 from typing import Optional, List
 from sqlmodel import Field, SQLModel, Relationship
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
+
+# Bolivia is UTC-4 year-round; use a fixed offset (no OS tzdata needed) and store naive.
+BOLIVIA_TZ = timezone(timedelta(hours=-4))
+
+def _now_bo() -> datetime:
+    return datetime.now(BOLIVIA_TZ).replace(tzinfo=None)
 
 class Client(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -85,7 +91,7 @@ class ClassReservationCreate(SQLModel):
 class ScanEvent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="client.id")
-    scanned_at: datetime = Field(default_factory=datetime.now)
+    scanned_at: datetime = Field(default_factory=_now_bo)
     schedule_title: Optional[str] = None
     schedule_time: Optional[str] = None
 
@@ -101,7 +107,7 @@ class InstagramPost(SQLModel, table=True):
     image_url: str
     video_url: Optional[str] = None
     caption: str
-    posted_at: datetime = Field(default_factory=datetime.now)
+    posted_at: datetime = Field(default_factory=_now_bo)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 class InstagramPostCreate(SQLModel):
