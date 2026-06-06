@@ -581,7 +581,8 @@ def process_qr_scan(data: QRScanRequest, session: Session = Depends(get_session)
 
 @api_router.get("/scan-notifications")
 def get_scan_notifications(session: Session = Depends(get_session)):
-    cutoff = datetime.now() - timedelta(hours=2)
+    # Show all of today's entries (since midnight), not just the last couple hours.
+    cutoff = datetime.combine(date.today(), datetime.min.time())
     events = session.exec(
         select(ScanEvent, Client)
         .join(Client, ScanEvent.client_id == Client.id)

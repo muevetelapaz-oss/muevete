@@ -854,20 +854,9 @@ async function loadScheduleOverview() {
     const res = await fetch(`${API}/schedule-overview?days_ahead=7`);
     const data = await res.json();
 
-    // Notifications
-    const notifEl = document.getElementById('schedule-notifications');
-    if (data.notifications.length === 0) {
-      notifEl.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;text-align:center;padding:1rem">Sin notificaciones recientes</p>';
-    } else {
-      notifEl.innerHTML = data.notifications.map(n => {
-        const time = new Date(n.created_at);
-        const timeStr = time.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-        return `<div class="stats-item">
-          <span class="stats-item-name" style="font-size:0.82rem">🔔 ${n.message}</span>
-          <span class="stats-item-value" style="font-size:0.7rem">${n.reservation_date} · ${n.start_time}</span>
-        </div>`;
-      }).join('');
-    }
+    // Note: the #schedule-notifications panel is owned by the QR entry poll
+    // (renderScanNotifications); we no longer write class-reservation
+    // notifications here to avoid the two functions overwriting each other.
 
     // Who's coming
     const comingEl = document.getElementById('admin-coming-list');
@@ -1126,8 +1115,8 @@ async function pollScanNotifications() {
           showScanToast(n.client_name, n.schedule_title, n.scanned_at.slice(11, 16));
         });
       }
-      renderScanNotifications(notifications);
     }
+    renderScanNotifications(notifications);
   } catch { /* silent */ }
 }
 
@@ -1155,7 +1144,7 @@ function renderScanNotifications(scans) {
     </div>`;
   }).join('');
 
-  notifEl.innerHTML = scanHtml || '<p style="color:var(--text-muted);font-size:0.85rem;text-align:center;padding:1rem">Sin ingresos recientes</p>';
+  notifEl.innerHTML = scanHtml || '<p style="color:var(--text-muted);font-size:0.85rem;text-align:center;padding:1rem">Sin entradas hoy</p>';
 }
 
 function showScanToast(clientName, scheduleTitle, scanTime) {
