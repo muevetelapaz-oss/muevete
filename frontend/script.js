@@ -271,7 +271,7 @@ function renderDaysChart(data) {
 /* ─── Clients ──────────────────────────────────────────── */
 async function loadClients() {
   try {
-    const res = await fetch(`${API}/clients`);
+    const res = await fetch(`${API}/clients`, { cache: 'no-store' });
     allClients = await res.json();
     renderClientsTable();
   } catch (err) {
@@ -479,12 +479,13 @@ async function registerEntry(clientId) {
       return;
     }
     if (data.ok) {
-      if (data.attendance_created) {
-        showScanToast(client.name, data.schedule ? data.schedule.title : null, data.scan_time);
-      } else {
-        alert(`${client.name} ya tenía una entrada registrada hoy.`);
+      showScanToast(client.name, data.schedule ? data.schedule.title : null, data.scan_time);
+      // Update the counter instantly without waiting for a reload.
+      if (data.count != null) {
+        client.attendance_count = data.count;
+        renderClientsTable();
       }
-      await loadClients();
+      loadClients();
       loadDashboard();
     }
   } catch (err) {
@@ -1148,6 +1149,9 @@ async function pollScanNotifications() {
         newOnes.forEach(n => {
           showScanToast(n.client_name, n.schedule_title, n.scanned_at.slice(11, 16));
         });
+        // A new entry happened (QR or manual) — refresh the client counters live.
+        loadClients();
+        loadDashboard();
       }
     }
     renderScanNotifications(notifications);
