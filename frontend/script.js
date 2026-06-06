@@ -1131,11 +1131,20 @@ async function pollScanNotifications() {
   } catch { /* silent */ }
 }
 
+let lastScanRenderSig = null;
+
 function renderScanNotifications(scans) {
   const notifEl = document.getElementById('schedule-notifications');
   if (!notifEl) return;
 
-  const scanHtml = scans.slice(0, 8).map(n => {
+  const top = scans.slice(0, 8);
+
+  // Skip the DOM update when nothing changed, so the panel doesn't flicker on every poll.
+  const sig = top.map(n => `${n.id}|${n.scanned_at}|${n.schedule_title || ''}`).join(',');
+  if (sig === lastScanRenderSig) return;
+  lastScanRenderSig = sig;
+
+  const scanHtml = top.map(n => {
     const time = n.scanned_at.slice(11, 16);
     const schedule = n.schedule_title ? ` · ${n.schedule_title}` : '';
     return `<div class="stats-item scan-notif-item">

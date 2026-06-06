@@ -1,3 +1,10 @@
+# Force Bolivia time (UTC-4) so datetime.now()/date.today() reflect local time
+# even when the host (e.g. Railway) runs in UTC.
+import os
+import time as _time
+os.environ["TZ"] = "America/La_Paz"
+_time.tzset()
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, APIRouter, Query
 from fastapi.staticfiles import StaticFiles
